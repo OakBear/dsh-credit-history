@@ -1,0 +1,11 @@
+{
+  "hasToggle": true,
+  "hasInterval": true,
+  "intervalOptions": [
+    "15 分钟:15",
+    "5 分钟:5"
+  ],
+  "intervalValue": "15",
+  "toggleChecked": true,
+  "around": " htm 功能设置 代码 兜底：任意文件 添加预览插件 注册新的文件类型预览 积分历史 为「积分历史」配置相关选项 后台记录 采样间隔 15 分钟 5 分钟 自动采样设置对全部 API 源生效，后台按来源与账号串行执行。仅自动采样失败时延长间隔，最多 60 分钟。关闭本面板仍会采样，退出 dsh 才暂停。Jet Hub 的手动查询保持原有行为。 完成"
+}

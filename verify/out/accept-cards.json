@@ -1,0 +1,4 @@
+{
+  "text": "设置\n通用设置\n模型\n内置插件\nAgent 预设\n规则设定\nJet Hub\n侧边卡片\n打开配置文件\n关闭\n\n管理侧边卡片的显示内容与默认行为\n\nDSH-better-sidebar\nv0.22.1\n常规\n为模型注入侧边栏打开工具\n开启后，模型可通过 sidebar_open 工具在侧边栏主动打开文件、文件夹和 HTTP(S) 网页（默认关闭）\n位置兼容模式\n选择顶栏兼容方案：自动检测（默认，保守）/ DSH官方Web / 已知桌面壳 / 自定义方案（下移距离 + 自定义 CSS）\n自动检测\n手机\n窄屏时不自动弹出\n在手机 / 窄屏下，新的子代理或后台任务都不再自动切到任务页（页内仍可手动打开）\n窄屏时任务页默认树状图\n手机 / 窄屏下任务页默认用经典树，而不是工作流图；页内切换仍可临时改成图\n侧边栏内容\n8\n文件变动\ngit\n任务管理\nsubagent\n功能设置\n积分历史\ncredit-history\n功能设置\nGit 图谱\ndsh-session-graph\nAgent Workflow\ndsh-agent-workflow\n侧边对话(beta)\nsidechat\n文件\neditor\n功能设置\n文件变动\ndiff\n添加 Tab 插件\n注册新的侧边栏页面\n文件预览\n3\nMarkdown\nmd · markdown\nHTML\nhtml · htm\n功能设置\n代码\n兜底：任意文件\n添加预览插件\n注册新的文件类型预览",
+  "mentions": true
+}

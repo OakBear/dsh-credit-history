@@ -1,0 +1,41 @@
+{
+  "entries": [
+    {
+      "kind": "files",
+      "text": "文件"
+    },
+    {
+      "kind": "git",
+      "text": "文件变动"
+    },
+    {
+      "kind": "terminal",
+      "text": "新建终端 Ctrl + `"
+    },
+    {
+      "kind": "subagent",
+      "text": "任务管理"
+    },
+    {
+      "kind": "credit-history",
+      "text": "积分历史"
+    },
+    {
+      "kind": "dsh-session-graph",
+      "text": "Git 图谱"
+    },
+    {
+      "kind": "dsh-agent-workflow",
+      "text": "Agent Workflow"
+    },
+    {
+      "kind": "sidechat",
+      "text": "侧边对话(beta)"
+    }
+  ],
+  "strip": [
+    "开始"
+  ],
+  "inStrip": false,
+  "inGuide": true
+}

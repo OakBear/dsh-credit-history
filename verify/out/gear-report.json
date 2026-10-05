@@ -1,0 +1,90 @@
+{
+  "results": [
+    {
+      "id": "R1",
+      "name": "「积分历史」Tab 处于启用状态",
+      "pass": true,
+      "evidence": {
+        "enabled": true,
+        "hasGear": true,
+        "gearAria": "积分历史 功能设置",
+        "cardClass": "_2vuxea_card _2vuxea_cardOn"
+      }
+    },
+    {
+      "id": "G1",
+      "name": "启用后卡片出现齿轮（功能设置）按钮",
+      "pass": true,
+      "evidence": {
+        "hasGear": true,
+        "gearAria": "积分历史 功能设置"
+      }
+    },
+    {
+      "id": "G2",
+      "name": "齿轮面板含「后台记录」开关",
+      "pass": true,
+      "evidence": {
+        "hasToggle": true,
+        "hasInterval": true,
+        "intervalOptions": [
+          "15 分钟:15",
+          "5 分钟:5"
+        ],
+        "intervalValue": "15",
+        "toggleChecked": true,
+        "around": " htm 功能设置 代码 兜底：任意文件 添加预览插件 注册新的文件类型预览 积分历史 为「积分历史」配置相关选项 后台记录 采样间隔 15 分钟 5 分钟 自动采样设置对全部 API 源生效，后台按来源与账号串行执行。仅自动采样失败时延长间隔，最多 60 分钟。关闭本面板仍会采样，退出 dsh 才暂停。Jet Hub 的手动查询保持原有行为。 完成"
+      }
+    },
+    {
+      "id": "G3",
+      "name": "齿轮面板含「采样间隔」5/15 分钟选项",
+      "pass": true,
+      "evidence": {
+        "hasToggle": true,
+        "hasInterval": true,
+        "intervalOptions": [
+          "15 分钟:15",
+          "5 分钟:5"
+        ],
+        "intervalValue": "15",
+        "toggleChecked": true,
+        "around": " htm 功能设置 代码 兜底：任意文件 添加预览插件 注册新的文件类型预览 积分历史 为「积分历史」配置相关选项 后台记录 采样间隔 15 分钟 5 分钟 自动采样设置对全部 API 源生效，后台按来源与账号串行执行。仅自动采样失败时延长间隔，最多 60 分钟。关闭本面板仍会采样，退出 dsh 才暂停。Jet Hub 的手动查询保持原有行为。 完成"
+      }
+    },
+    {
+      "id": "G4",
+      "name": "开关状态来自后端（非硬编码默认）",
+      "pass": true,
+      "evidence": {
+        "toggleChecked": true
+      }
+    },
+    {
+      "id": "R2",
+      "name": "修复后右侧栏重新出现 credit-history 入口",
+      "pass": true,
+      "evidence": {
+        "guide": [
+          "files",
+          "git",
+          "terminal",
+          "subagent",
+          "credit-history",
+          "dsh-session-graph",
+          "dsh-agent-workflow",
+          "sidechat"
+        ]
+      }
+    },
+    {
+      "id": "C1",
+      "name": "控制台无错误",
+      "pass": true,
+      "evidence": {
+        "errors": []
+      }
+    }
+  ],
+  "errors": []
+}

@@ -1,0 +1,138 @@
+{
+  "results": [
+    {
+      "id": "A1",
+      "name": "右侧栏存在 credit-history 入口",
+      "pass": true,
+      "evidence": {
+        "inStrip": false,
+        "inGuide": true,
+        "guide": [
+          "files",
+          "git",
+          "terminal",
+          "subagent",
+          "credit-history",
+          "dsh-session-graph",
+          "dsh-agent-workflow",
+          "sidechat"
+        ],
+        "strip": [
+          "开始"
+        ]
+      }
+    },
+    {
+      "id": "A2",
+      "name": "入口标题为「积分历史」",
+      "pass": true,
+      "evidence": {
+        "strip": [
+          "开始"
+        ],
+        "text": "积分历史"
+      }
+    },
+    {
+      "id": "A3",
+      "name": "选中后渲染出面板（含 SVG 走势图）",
+      "pass": true,
+      "evidence": {
+        "text": "CodeBuddy Qoder 国际版 Qoder 中国版 刷新 马逸超 1 小时 24 小时 7 天 1,286 credits 区间净消耗 4 credits · 覆盖约 13.2 小时 · 50 段 悬停查看某一时刻的余额与区间变化 1,286 1,288 1,290 10/3 06:40 10/4 01:03 2026/10/4 01:03:29 · 约 15.5 分钟净消耗 0 最近 12 次采样明细 用量是相邻余额的净下降估算，包含此账号在其他客户端的消费；积分补充、到期或周期重置可能遮蔽实际消耗，跨日、资源包变化与断点均不计入。历史保留 30 天，退出 dsh 后暂停采样。",
+        "hasSvg": true,
+        "svgLabel": "积分余额历史走势图",
+        "svgBox": [
+          695,
+          460
+        ],
+        "panelBox": [
+          719,
+          912
+        ],
+        "scrolls": false,
+        "hasDetails": true,
+        "selects": [
+          "API 来源"
+        ],
+        "leaks": []
+      }
+    },
+    {
+      "id": "A4",
+      "name": "走势图填满侧栏列宽（响应式自适应）",
+      "pass": true,
+      "evidence": {
+        "svgBox": [
+          695,
+          460
+        ],
+        "panelBox": [
+          719,
+          912
+        ]
+      }
+    },
+    {
+      "id": "A5",
+      "name": "面板文案无 NaN/undefined/Infinity",
+      "pass": true,
+      "evidence": {
+        "leaks": [],
+        "text": "CodeBuddy Qoder 国际版 Qoder 中国版 刷新 马逸超 1 小时 24 小时 7 天 1,286 credits 区间净消耗 4 credits · 覆盖约 13.2 小时 · 50 段 悬停查看某一时刻的余额与区间变化 1,286 1,288 1,290 10/3 06:40 10/4 01:03 2026/10/4 01:03:29 · 约 15.5 分钟净消耗 0 最近 12 次采样明细 用量是相邻余额的净下降估算，包含此账号在其他客户端的消费；积分补充、到期或周期重置可能遮蔽实际消耗，跨日、资源包变化与断点均不计入。历史保留 30 天，退出 dsh 后暂停采样。"
+      }
+    },
+    {
+      "id": "A6",
+      "name": "面板提供来源/范围/刷新控件",
+      "pass": true,
+      "evidence": {
+        "selects": [
+          "API 来源"
+        ],
+        "text": "CodeBuddy Qoder 国际版 Qoder 中国版 刷新 马逸超 1 小时 24 小时 7 天 1,286 credits 区间净消耗 4 credits · 覆盖约 13.2 小时 · 50 段 悬停查看某一时刻的余额与区间变化 1,286 1,288 1,290 10/3 06:40 10/4 01:03 2026/10/4 01:03:29 · 约 15.5 分钟净消耗 0 最近 1"
+      }
+    },
+    {
+      "id": "A7",
+      "name": "明细表默认折叠（details 存在）",
+      "pass": true,
+      "evidence": {
+        "hasDetails": true
+      }
+    },
+    {
+      "id": "B1",
+      "name": "设置导航不再出现「积分历史」",
+      "pass": true,
+      "evidence": {
+        "cells": [
+          "通用设置",
+          "模型",
+          "内置插件",
+          "Agent 预设",
+          "规则设定",
+          "Jet Hub",
+          "侧边卡片"
+        ]
+      }
+    },
+    {
+      "id": "B2",
+      "name": "侧边卡片页登记了「积分历史」Tab",
+      "pass": true,
+      "evidence": {
+        "mentions": true,
+        "text": "设置\n通用设置\n模型\n内置插件\nAgent 预设\n规则设定\nJet Hub\n侧边卡片\n打开配置文件\n关闭\n\n管理侧边卡片的显示内容与默认行为\n\nDSH-better-sidebar\nv0.22.1\n常规\n为模型注入侧边栏打开工具\n开启后，模型可通过 sidebar_open 工具在侧边栏主动打开文件、文件夹和 HTTP(S) 网页（默认关闭）\n位置兼容模式\n选择顶栏兼容方案：自动检测（默认，保守）/ DSH官方Web / 已知桌面壳 / 自定义方案（下移距离 + 自定义 CSS）\n自动检测\n手机\n窄屏时不自动弹出\n在手机 / 窄屏下，新的子代理或后台任务都不再自动切到任务页（页内仍可手动打开）\n窄屏时任务页默认树状图\n手机 / 窄屏下任务页默认用经典树，而不是工作流图；页内切换仍可临时改成图\n侧边栏内容\n8\n文件变动\ngit\n任务管理\nsubagent\n功能设置\n积分历史\ncredit-h"
+      }
+    },
+    {
+      "id": "C1",
+      "name": "浏览器控制台无错误",
+      "pass": true,
+      "evidence": {
+        "errors": []
+      }
+    }
+  ],
+  "errors": []
+}
