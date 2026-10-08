@@ -1,4 +1,5 @@
 window.__ModuleLoader__.load({id:'dsh-credit-history',factory:(require)=>{var module={exports:{}};var exports=module.exports;
+"use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -27,22 +28,141 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// client-src/index.js
+// plugin-src/client/index.js
 var index_exports = {};
 __export(index_exports, {
-  CreditHistoryPanel: () => CreditHistoryPanel,
-  HistorySettings: () => HistorySettings,
-  PROVIDERS: () => PROVIDERS,
-  Trend: () => Trend,
   apply: () => apply,
   inject: () => inject,
   name: () => name
 });
 module.exports = __toCommonJS(index_exports);
+
+// plugin-src/client/credit-history-tab.js
 var React2 = __toESM(require("react"), 1);
 
-// client-src/credit-history-panel.js
+// plugin-src/client/credit-history-panel.js
 var React = __toESM(require("react"), 1);
+
+// plugin-src/client/trend-geometry.js
+var CHANGE_KINDS = ["usage", "increase", "reset", "gap"];
+var fmt = (n) => Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 4 });
+var PAD_RIGHT = 16;
+var PAD_TOP = 14;
+var PAD_BOTTOM = 24;
+var MIN_WIDTH = 240;
+var MIN_INNER = 40;
+var MIN_SPAN_MS = 6e4;
+function isValidSample(point) {
+  return point?.status === "ok" && Number.isFinite(point.total);
+}
+function changeKindOf(point) {
+  if (!isValidSample(point)) return "failed";
+  const kind = point?.change?.kind;
+  return CHANGE_KINDS.includes(kind) ? kind : "unknown";
+}
+function niceTicks(low, high, count = 4, minStep = 0) {
+  const span = high - low;
+  if (!(span > 0)) return [low];
+  const raw = Math.max(span / count, minStep);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+  const normalized = raw / magnitude;
+  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+  const ticks = [];
+  for (let v = Math.ceil(low / step) * step; v <= high + step * 1e-6; v += step) ticks.push(Number(v.toFixed(6)));
+  return ticks;
+}
+var axisNumber = (value, decimals) => {
+  const abs = Math.abs(value);
+  if (abs >= 1e8) return `${(value / 1e8).toFixed(decimals)} 亿`;
+  if (abs >= 1e4) return `${(value / 1e4).toFixed(decimals)} 万`;
+  return fmt(value);
+};
+var labelWidth = (text) => text.length * 6.4;
+function axisLayout(ticks, w) {
+  const cap = Math.max(40, Math.round(w * 0.45));
+  const needed = (labels2) => Math.max(...labels2.map(labelWidth), 0) + 10;
+  const full = ticks.map((v) => fmt(v));
+  if (needed(full) <= cap) return { labels: full, padLeft: Math.max(40, Math.round(needed(full))) };
+  const zero = ticks.map((v) => axisNumber(v, 0));
+  const labels = new Set(zero).size === zero.length ? zero : ticks.map((v) => axisNumber(v, 1));
+  return { labels, padLeft: Math.max(40, Math.min(cap, Math.round(needed(labels)))) };
+}
+function buildTrend(points, { width, height } = {}) {
+  const list = Array.isArray(points) ? points : [];
+  const valid = list.filter(isValidSample);
+  const w = Math.max(MIN_WIDTH, Math.round(width) || 320);
+  const h3 = Math.max(0, Math.round(Number(height) || 0));
+  const atOf = (point) => Number.isFinite(point?.at) ? point.at : 0;
+  const minAt = list.length ? atOf(list[0]) : 0;
+  const lastAt = list.length ? atOf(list[list.length - 1]) : 0;
+  const maxAt = Math.max(minAt + MIN_SPAN_MS, lastAt);
+  const totals = valid.map((p) => p.total);
+  const min = totals.length ? Math.min(...totals) : 0;
+  const max = totals.length ? Math.max(...totals) : 0;
+  const range = max - min;
+  const cushion = range > 0 ? range * 0.15 : Math.max(1, max * 2e-3);
+  const low = Math.max(0, min - cushion), high = max + cushion;
+  const granularity = totals.every(Number.isInteger) ? 1 : 0;
+  const ticks = niceTicks(low, high, 4, granularity);
+  const { labels: tickLabels, padLeft } = axisLayout(ticks, w);
+  const innerW = Math.max(MIN_INNER, w - padLeft - PAD_RIGHT);
+  const innerH = Math.max(MIN_INNER, h3 - PAD_TOP - PAD_BOTTOM);
+  const spanMs = maxAt - minAt || 1;
+  const spanValue = high - low || 1;
+  const xOf = (point) => {
+    const at = Number.isFinite(point) ? point : atOf(point);
+    return padLeft + (at - minAt) / spanMs * innerW;
+  };
+  const yOf = (point) => {
+    const total = Number.isFinite(point) ? point : Number.isFinite(point?.total) ? point.total : low;
+    return PAD_TOP + innerH - (total - low) / spanValue * innerH;
+  };
+  const runs = valid.length ? [valid.slice()] : [];
+  const lines = runs.filter((r) => r.length >= 2);
+  const curves = lines.map((pts) => {
+    const path = pts.map((p) => `${xOf(p).toFixed(1)},${yOf(p).toFixed(1)}`).join(" ");
+    const bottom = PAD_TOP + innerH;
+    return {
+      points: pts,
+      polyline: path,
+      // 面积同样跨越空缺填充：底边从首点垂到末点，中间不开口。
+      area: `${xOf(pts[0]).toFixed(1)},${bottom} ${path} ${xOf(pts[pts.length - 1]).toFixed(1)},${bottom}`
+    };
+  });
+  const segments = [];
+  for (let i = 1; i < valid.length; i++) {
+    const a = valid[i - 1], b = valid[i];
+    if (changeKindOf(b) === "gap") continue;
+    segments.push({ a, b, usage: changeKindOf(b) === "usage" });
+  }
+  return {
+    ready: valid.length >= 2,
+    valid,
+    domain: { minAt, lastAt, maxAt, low, high },
+    ticks,
+    tickLabels,
+    layout: { width: w, height: h3, padLeft, padTop: PAD_TOP, padRight: PAD_RIGHT, padBottom: PAD_BOTTOM, innerW, innerH },
+    scale: { xOf, yOf },
+    runs,
+    lines,
+    curves,
+    segments,
+    breaks: []
+  };
+}
+
+// plugin-src/client/history-settings.js
+var SAMPLING_MINUTES = [5, 15];
+var DEFAULT_SAMPLING_MINUTES = SAMPLING_MINUTES[0];
+function samplingSelectValue(data) {
+  const value = (
+    /** @type {unknown} */
+    data?.intervalMinutes
+  );
+  return SAMPLING_MINUTES.includes(value) ? value : DEFAULT_SAMPLING_MINUTES;
+}
+
+// plugin-src/client/credit-history-panel.js
 var h = React.createElement;
 var PROVIDERS = {
   codearts: "CodeArts",
@@ -57,7 +177,7 @@ var PROVIDERS = {
   raccoon: "Raccoon"
 };
 var RANGES = [[1, "1 小时"], [24, "24 小时"], [168, "7 天"]];
-var fmt = (n) => Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 4 });
+var fmt2 = (n) => Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 4 });
 var duration = (minutes) => minutes >= 120 ? `${(minutes / 60).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} 小时` : `${Number(minutes).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} 分钟`;
 var stamp = (t) => new Date(t).toLocaleString("zh-CN", { hour12: false });
 var clock = (t) => new Date(t).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
@@ -66,7 +186,7 @@ var dateTime = (t) => {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 var describe = (change) => {
-  if (change?.kind === "usage") return `约 ${duration(change.minutes)}净消耗 ${fmt(change.amount)}`;
+  if (change?.kind === "usage") return `约 ${duration(change.minutes)}净消耗 ${fmt2(change.amount)}`;
   if (change?.kind === "increase") return "余额补充或资源包变动，不计为消耗";
   if (change?.kind === "reset") return "跨日或额度周期变动，不计为消耗";
   return "无连续采样，无法估算";
@@ -100,45 +220,17 @@ function useElementSize() {
   }, []);
   return [ref, size];
 }
-function niceTicks(low, high, count = 4) {
-  const span = high - low;
-  if (!(span > 0)) return [low];
-  const raw = span / count;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
-  const normalized = raw / magnitude;
-  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
-  const ticks = [];
-  for (let v = Math.ceil(low / step) * step; v <= high + step * 1e-6; v += step) ticks.push(Number(v.toFixed(6)));
-  return ticks;
-}
 var axisLabel = (from, to) => {
   const a = new Date(from), b = new Date(to);
   const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   return sameDay ? { start: clock(from), end: clock(to) } : { start: dateTime(from), end: dateTime(to) };
 };
-var axisNumber = (value, decimals) => {
-  const abs = Math.abs(value);
-  if (abs >= 1e8) return `${(value / 1e8).toFixed(decimals)} 亿`;
-  if (abs >= 1e4) return `${(value / 1e4).toFixed(decimals)} 万`;
-  return fmt(value);
-};
-var labelWidth = (text) => text.length * 6.4;
-function axisLayout(ticks, w) {
-  const cap = Math.max(40, Math.round(w * 0.45));
-  const needed = (labels2) => Math.max(...labels2.map(labelWidth), 0) + 10;
-  const full = ticks.map((v) => fmt(v));
-  if (needed(full) <= cap) return { labels: full, padLeft: Math.max(40, Math.round(needed(full))) };
-  const zero = ticks.map((v) => axisNumber(v, 0));
-  const labels = new Set(zero).size === zero.length ? zero : ticks.map((v) => axisNumber(v, 1));
-  return { labels, padLeft: Math.max(40, Math.min(cap, Math.round(needed(labels)))) };
-}
 function Trend({ points }) {
   const [wrapRef, { width, height: boxHeight }] = useElementSize();
   const [hover, setHover] = React.useState(null);
   const READOUT = 44;
   const height = Math.max(160, Math.min(460, Math.round(boxHeight) - READOUT) || 0);
   const valid = points.filter((p) => p.status === "ok");
-  const plot = valid.length ? valid : points;
   if (!valid.length) {
     return h(
       "div",
@@ -160,54 +252,12 @@ function Trend({ points }) {
       }, "尚无余额记录。后台将在启动后约 30 秒开始采样；至少两个有效采样才能画出走势与消耗估算。")
     );
   }
-  const minAt = points[0].at;
-  const lastAt = points[points.length - 1].at;
-  const maxAt = Math.max(minAt + 6e4, lastAt);
-  const totals = valid.map((p) => p.total);
-  const min = Math.min(...totals), max = Math.max(...totals);
-  const range = max - min;
-  const cushion = range > 0 ? range * 0.15 : Math.max(1, max * 2e-3);
-  const low = Math.max(0, min - cushion), high = max + cushion;
-  const ticks = niceTicks(low, high);
-  const w = Math.max(240, Math.round(width) || 320);
-  const { labels: tickLabels, padLeft } = axisLayout(ticks, w);
-  const padRight = 16, padTop = 14, padBottom = 24;
-  const innerW = Math.max(40, w - padLeft - padRight);
-  const innerH = Math.max(40, height - padTop - padBottom);
-  const x = (p) => padLeft + (p.at - minAt) / (maxAt - minAt) * innerW;
-  const y = (p) => padTop + innerH - (p.total - low) / (high - low || 1) * innerH;
-  const runs = [];
-  let run = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i], prev = points[i - 1];
-    const broken = i > 0 && (prev.status !== "ok" || p.status !== "ok" || p.change?.kind === "gap");
-    if (broken && run.length) {
-      runs.push(run);
-      run = [];
-    }
-    if (p.status === "ok") run.push(p);
-  }
-  if (run.length) runs.push(run);
-  const lines = runs.filter((r) => r.length >= 2);
-  const seg = (pts) => pts.map((p) => `${x(p).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
-  const area = (pts) => `${x(pts[0]).toFixed(1)},${padTop + innerH} ${seg(pts)} ${x(pts[pts.length - 1]).toFixed(1)},${padTop + innerH}`;
-  const segments = [];
-  for (let i = 1; i < plot.length; i++) {
-    const a = plot[i - 1], b = plot[i];
-    if (a.status !== "ok" || b.status !== "ok" || b.change?.kind === "gap") continue;
-    segments.push({ a, b, usage: b.change?.kind === "usage" });
-  }
-  const breaks = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    if (p.status !== "ok") {
-      breaks.push({ at: p.at, failure: true });
-      continue;
-    }
-    if (i > 0 && points[i - 1].status === "ok" && p.change?.kind === "gap") {
-      breaks.push({ at: (points[i - 1].at + p.at) / 2, failure: false, from: points[i - 1].at, to: p.at });
-    }
-  }
+  const trend = buildTrend(points, { width, height });
+  const { curves, segments, domain, ticks, tickLabels, layout, scale } = trend;
+  const { minAt, lastAt } = domain;
+  const { width: w, padLeft, padTop, innerW, innerH } = layout;
+  const { xOf: x, yOf: y } = scale;
+  const plot = trend.valid;
   const onMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const px = event.clientX - rect.left;
@@ -244,9 +294,9 @@ function Trend({ points }) {
       readout ? h(
         React.Fragment,
         null,
-        h("strong", { style: { color: TOKEN.text, fontSize: 14 } }, `${fmt(readout.total)}`),
+        h("strong", { style: { color: TOKEN.text, fontSize: 14 } }, `${fmt2(readout.total)}`),
         h("span", null, stamp(readout.at)),
-        h("span", { style: { color: readout.change?.kind === "usage" ? TOKEN.brand : TOKEN.faint } }, describe(readout.change))
+        h("span", { style: { color: changeKindOf(readout) === "usage" ? TOKEN.brand : TOKEN.faint } }, describe(readout.change))
       ) : h("span", { style: { color: TOKEN.faint } }, "悬停查看某一时刻的余额与区间变化")
     ),
     h(
@@ -276,10 +326,11 @@ function Trend({ points }) {
           h("text", { x: padLeft - 8, y: gy + 3.5, textAnchor: "end", fill: "currentColor", fontSize: 10, opacity: 0.55 }, tickLabels[i])
         );
       }),
-      lines.map((pts, i) => h("polygon", { key: `area-${i}`, points: area(pts), fill: "url(#ch-area)" })),
-      lines.map((pts, i) => h("polyline", {
+      // 面积与折线都只有**一段** —— 空缺不再开口。见 trend-geometry.js 的契约。
+      curves.map(({ area: polygon }, i) => h("polygon", { key: `area-${i}`, points: polygon, fill: "url(#ch-area)" })),
+      curves.map(({ polyline }, i) => h("polyline", {
         key: `line-${i}`,
-        points: seg(pts),
+        points: polyline,
         fill: "none",
         stroke: TOKEN.brand,
         strokeWidth: 1.5,
@@ -297,25 +348,9 @@ function Trend({ points }) {
         strokeWidth: 2,
         strokeLinecap: "round"
       })),
-      // Intervals that are NOT continuity: dashed vertical break, so the line and
-      // the area visibly stop instead of bridging a long absence of samples.
-      breaks.map((b, i) => h(
-        "g",
-        { key: `brk-${i}` },
-        h("line", {
-          x1: x(b),
-          x2: x(b),
-          y1: padTop + 2,
-          y2: padTop + innerH,
-          stroke: b.failure ? TOKEN.error : TOKEN.warn,
-          strokeOpacity: b.failure ? 0.4 : 0.5,
-          strokeDasharray: b.failure ? "2 4" : "3 3"
-        }),
-        h("title", null, b.failure ? `${stamp(b.at)}
-查询失败，历史保留缺口` : `${stamp(b.from)} → ${stamp(b.to)}
-两次采样间隔过长，其中的消耗无法估算`),
-        b.failure ? h("circle", { cx: x(b), cy: padTop + 6, r: 3, fill: TOKEN.error, fillOpacity: 0.75 }) : null
-      )),
+      // ⚠️ 这里**不再**画「虚线断点」。原先每个 gap/失败采样都画一条竖直虚线让曲线
+      // 与面积「明显断开」，那正是用户要删掉的「把空缺显示为空缺」。曲线现在直接跨
+      // 过去；空缺仍可从 x 轴的稀疏读出来（相邻两点的水平间距明显更宽）。
       active ? h(
         "g",
         null,
@@ -365,7 +400,7 @@ var selectStyle = {
   fontSize: 12,
   maxWidth: "100%"
 };
-function CreditHistoryPanel({ rpcCall, visible = true }) {
+function CreditHistoryPanel({ rpcCall, visible = true, sessionId }) {
   const [provider, setProvider] = React.useState("qodercn");
   const [hours, setHours] = React.useState(24);
   const [accountId, setAccountId] = React.useState("");
@@ -374,6 +409,21 @@ function CreditHistoryPanel({ rpcCall, visible = true }) {
   const [busy, setBusy] = React.useState(false);
   const [available, setAvailable] = React.useState(null);
   const [nonce, setNonce] = React.useState(0);
+  const seededRef = React.useRef("");
+  React.useEffect(() => {
+    if (!sessionId || seededRef.current === sessionId) return;
+    seededRef.current = sessionId;
+    let alive = true;
+    rpcCall("session.provider", { sessionId }).then((result) => {
+      const seed = result?.provider;
+      if (!alive || typeof seed !== "string" || !PROVIDERS[seed]) return;
+      setProvider((current) => available === null || available.includes(seed) ? seed : current);
+    }).catch(() => {
+    });
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, rpcCall, available]);
   React.useEffect(() => {
     let alive = true;
     const probe = async () => {
@@ -489,14 +539,14 @@ function CreditHistoryPanel({ rpcCall, visible = true }) {
       h(
         "span",
         { style: { fontSize: 26, fontWeight: 650, letterSpacing: "-0.02em" } },
-        last?.status === "ok" ? fmt(last.total) : "—"
+        last?.status === "ok" ? fmt2(last.total) : "—"
       ),
       h("span", { style: { fontSize: 11, color: TOKEN.sub } }, hasAccounts ? unit : "暂无账号")
     ),
     h(
       "div",
       { style: { marginTop: 4, fontSize: 11, color: TOKEN.sub, lineHeight: 1.6 } },
-      recent.length ? `区间净消耗 ${fmt(estimate)} ${unit} · 覆盖约 ${duration(span)} · ${recent.length} 段` : "本区间暂无可估算的连续消耗"
+      recent.length ? `区间净消耗 ${fmt2(estimate)} ${unit} · 覆盖约 ${duration(span)} · ${recent.length} 段` : "本区间暂无可估算的连续消耗"
     ),
     // ---- the chart ------------------------------------------------------
     // `flex: 1 1 auto` lets the hero chart absorb the tab's leftover height, so
@@ -510,7 +560,7 @@ function CreditHistoryPanel({ rpcCall, visible = true }) {
     h(
       "p",
       { style: { fontSize: 11, color: TOKEN.faint, margin: "8px 0 0", lineHeight: 1.65 } },
-      last ? `${stamp(last.at)} · ${last.status === "ok" ? describe(last.change) : "查询失败，历史保留缺口"}` : "正在等待第一次采样。"
+      last ? `${stamp(last.at)} · ${last.status === "ok" ? describe(last.change) : "查询失败，该时刻没有余额记录"}` : "正在等待第一次采样。"
     ),
     // ---- details --------------------------------------------------------
     points.length > 1 ? h(
@@ -533,7 +583,7 @@ function CreditHistoryPanel({ rpcCall, visible = true }) {
             "tr",
             { key: `${p.at}-${p.status}-${i}` },
             h("td", { style: { padding: "4px 6px", whiteSpace: "nowrap", color: TOKEN.sub } }, stamp(p.at)),
-            h("td", { style: { padding: "4px 6px", whiteSpace: "nowrap" } }, p.status === "ok" ? fmt(p.total) : "查询失败"),
+            h("td", { style: { padding: "4px 6px", whiteSpace: "nowrap" } }, p.status === "ok" ? fmt2(p.total) : "查询失败"),
             h("td", { style: { padding: "4px 6px", color: TOKEN.faint } }, describe(p.change))
           )))
         )
@@ -543,7 +593,7 @@ function CreditHistoryPanel({ rpcCall, visible = true }) {
     h(
       "p",
       { style: { fontSize: 10.5, color: TOKEN.faint, margin: "12px 0 0", lineHeight: 1.7 } },
-      "用量是相邻余额的净下降估算，包含此账号在其他客户端的消费；积分补充、到期或周期重置可能遮蔽实际消耗，跨日、资源包变化与断点均不计入。历史保留 30 天，退出 dsh 后暂停采样。"
+      "用量是相邻余额的净下降估算，包含此账号在其他客户端的消费；积分补充、到期或周期重置可能遮蔽实际消耗，跨日与资源包变化不计入。走势图按真实时间连续绘制，采样稀疏处不另作标记。历史保留 30 天，退出 dsh 后暂停采样。"
     )
   );
 }
@@ -595,11 +645,14 @@ function HistorySettings({ rpcCall }) {
       { style: rowStyle },
       h("span", null, "采样间隔"),
       h("select", {
+        // ⚠️ 取值与选项都来自 `history-settings.js`（纯模块、有单测）：
+        // 采样默认值改成 5 之后，这里若还写 `|| 15`、还把 15 排第一，
+        // 下拉框会先显示「15 分钟」再跳成「5 分钟」，用户会以为自己选的被改回去了。
         style: selectStyle,
-        value: data?.intervalMinutes || 15,
+        value: samplingSelectValue(data),
         disabled: busy || !data,
         onChange: (e) => void configure({ intervalMinutes: Number(e.target.value) })
-      }, h("option", { value: 15 }, "15 分钟"), h("option", { value: 5 }, "5 分钟"))
+      }, ...SAMPLING_MINUTES.map((minutes) => h("option", { key: minutes, value: minutes }, `${minutes} 分钟`)))
     ),
     error ? h("p", { role: "alert", style: { color: TOKEN.error, margin: "6px 0 0" } }, error) : null,
     h(
@@ -610,37 +663,57 @@ function HistorySettings({ rpcCall }) {
   );
 }
 
-// client-src/index.js
+// plugin-src/client/credit-history-tab.js
 var h2 = React2.createElement;
-var name = "credit-history-client";
-var inject = ["connection", "betterSidebar"];
-var TAB_ID = "credit-history";
+var CREDIT_HISTORY_TAB_ID = "credit-history";
+function installCreditHistoryTab(ctx, rpcCall) {
+  ctx.inject(["betterSidebar"], (scope) => {
+    scope.effect(() => scope.betterSidebar.registerTab({
+      id: CREDIT_HISTORY_TAB_ID,
+      title: "积分历史",
+      description: "各 API 源的积分余额走势与消耗估算",
+      /**
+       * 排在 Jet Hub 自家的标签之后：这块是**只读走势图**，不是管理入口。
+       */
+      order: 30,
+      /** 同 id 只允许开一个（它是"一份数据的一种视图"，多开会显示同样的内容）。 */
+      single: true,
+      settings: {
+        /**
+         * 齿轮里渲染**本插件自己的**设置面板，而不是声明式 `pluginToggles`：
+         * 这两个控件写的是宿主侧采样器的状态，用声明式行会让 sidebar 自己再存
+         * 一份同义的值，两者必然漂移（改一处另一处不同步）。
+         */
+        render: () => h2(HistorySettings, { rpcCall })
+      },
+      component: (props) => h2(CreditHistoryPanel, {
+        rpcCall,
+        /**
+         * 当前会话 id：面板用它向宿主查询「本会话最近用的是哪个供应商」，
+         * 并把来源下拉框**预选**到那个供应商（不再是恒默认 `qodercn`）。
+         * 与 dsh-turn-usage 的取法一致：会话作用域的 tab 挂在 `props.scope` 上。
+         */
+        sessionId: props.scope?.sessionId,
+        /**
+         * `visible` = 本标签**当前可见**（既是活动标签、且面板展开）。
+         * 不可见时面板会停止 30s 轮询 —— 历史是本地文件读取，没必要在后台刷。
+         */
+        visible: props.visible !== false
+      })
+    }), "jet-hub: credit history sidebar tab");
+  });
+}
+
+// plugin-src/client/index.js
+var name = "dsh-credit-history-client";
+var inject = ["connection"];
 function apply(ctx) {
   const rpcCall = async (method, payload) => {
     const result = await ctx.connection.rpc.call("/api", "credit-history", { method, payload });
     if (!result?.ok) throw new Error(result?.error?.message || "无法读取积分历史");
     return result.value;
   };
-  ctx.inject(["betterSidebar"], (scope) => {
-    scope.effect(() => scope.betterSidebar.registerTab({
-      id: TAB_ID,
-      title: "积分历史",
-      description: "各 API 源的积分余额走势与消耗估算",
-      order: 30,
-      single: true,
-      settings: {
-        // The gear renders the plugin's OWN panel rather than declarative
-        // rows: these controls write the backend's sampler state, and a
-        // declarative `pluginToggles` row would keep a second, divergent
-        // copy of the same value in the sidebar's prefs document.
-        render: () => h2(HistorySettings, { rpcCall })
-      },
-      component: (props) => h2(CreditHistoryPanel, {
-        rpcCall,
-        visible: props.visible !== false
-      })
-    }), "credit-history: sidebar tab");
-  });
+  installCreditHistoryTab(ctx, rpcCall);
 }
 
 return module.exports;}});

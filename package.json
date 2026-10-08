@@ -1,16 +1,45 @@
 {
   "name": "dsh-credit-history",
-  "version": "1.0.0",
-  "description": "独立的积分历史插件：后台低频采样、独立走势图页面，不修改 Jet Hub 手动查询。",
+  "version": "2.0.0",
+  "description": "独立的积分历史插件：后台低频采样、单存储增量编码走势图、独立 RPC 端点，不依赖也不上传 CodeArts 认证代码。",
   "type": "module",
   "main": "lib/index.js",
-  "exports": { ".": "./lib/index.js", "./client": "./client.js", "./package.json": "./package.json" },
-  "files": ["lib", "client.js", "cordis.patch.yml", "README.md"],
-  "scripts": { "build:client": "node build-client.mjs", "test": "node --test tests/*.test.mjs" },
-  "devDependencies": { "esbuild": "^0.24.2" },
-  "engines": { "node": ">=22" },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node_modules/.bin/tsc -p tsconfig.json --outDir lib --noEmit false",
+    "build:client": "node build-client.mjs",
+    "typecheck": "node_modules/.bin/tsc -p tsconfig.json --noEmit",
+    "test": "node_modules/.bin/vitest run"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.10.0",
+    "vitest": "^3.0.0",
+    "vite": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
-    "client": { "platform": "web", "inject": ["dsh-better-sidebar"] }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-better-sidebar"
+      ]
+    }
   }
 }

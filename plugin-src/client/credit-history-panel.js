@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { buildTrend, changeKindOf } from './trend-geometry.js';
+import { SAMPLING_MINUTES, samplingSelectValue } from './history-settings.js';
 const h = React.createElement;
 
 export const PROVIDERS = {
@@ -59,19 +61,6 @@ function useElementSize() {
   return [ref, size];
 }
 
-/** Axis ticks on 1/2/5×10ⁿ boundaries, so labels stay round numbers. */
-function niceTicks(low, high, count = 4) {
-  const span = high - low;
-  if (!(span > 0)) return [low];
-  const raw = span / count;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
-  const normalized = raw / magnitude;
-  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
-  const ticks = [];
-  for (let v = Math.ceil(low / step) * step; v <= high + step * 1e-6; v += step) ticks.push(Number(v.toFixed(6)));
-  return ticks;
-}
-
 /**
  * The x-axis end labels. A range that crosses midnight reads backwards as bare
  * clock times ("06:40 → 00:47"), so anything but a same-day window carries the
@@ -84,40 +73,13 @@ const axisLabel = (from, to) => {
 };
 
 /**
- * Y-axis tick labels. Full grouped numbers are preferred because they are
- * unambiguous; they are abbreviated only when the measured gutter would exceed
- * its share of a narrow column. Abbreviating always would be worse than the
- * clipping it replaces: at ~1e9, two neighbouring ticks both round to "10 亿".
- */
-const axisNumber = (value, decimals) => {
-  const abs = Math.abs(value);
-  if (abs >= 1e8) return `${(value / 1e8).toFixed(decimals)} 亿`;
-  if (abs >= 1e4) return `${(value / 1e4).toFixed(decimals)} 万`;
-  return fmt(value);
-};
-
-/** Rough width of a rendered label at the axis font size (10px). */
-const labelWidth = text => text.length * 6.4;
-
-/**
- * Choose the y tick labels and the left gutter they need. Full precision is used
- * whenever it fits; otherwise the labels switch to compact units and the gutter
- * is capped so the plot can never collapse on a narrow column.
- */
-function axisLayout(ticks, w) {
-  const cap = Math.max(40, Math.round(w * 0.45));
-  const needed = labels => Math.max(...labels.map(labelWidth), 0) + 10;
-  const full = ticks.map(v => fmt(v));
-  if (needed(full) <= cap) return { labels: full, padLeft: Math.max(40, Math.round(needed(full))) };
-  // Compact fallback: zero decimals normally, one only if that disambiguates.
-  const zero = ticks.map(v => axisNumber(v, 0));
-  const labels = new Set(zero).size === zero.length ? zero : ticks.map(v => axisNumber(v, 1));
-  return { labels, padLeft: Math.max(40, Math.min(cap, Math.round(needed(labels)))) };
-}
-
-/**
- * The hero chart: an area+line balance curve with per-segment semantics.
- * Renders at measured pixel size and grows into the tab's leftover height.
+ * The hero chart: an area+line balance curve, drawn at measured pixel size.
+ *
+ * 几何计算全部收在 `trend-geometry.js`（纯函数、可在 node 下单测）。
+ * ⚠️ **图表不再显示空缺**（用户要求：「一段时间空缺的话，就把它合并在一起，
+ * 不需要把它显示为空缺」）：跨 `gap` / `reset` / 失败采样一律连成**一条**曲线，
+ * 也没有虚线断点标记。该契约在 `buildTrend` 里，不在这里 —— 组件渲染不了，
+ * 判据留在组件里就等于没覆盖。
  */
 export function Trend({ points }) {
   const [wrapRef, { width, height: boxHeight }] = useElementSize();
@@ -129,7 +91,6 @@ export function Trend({ points }) {
   const height = Math.max(160, Math.min(460, Math.round(boxHeight) - READOUT) || 0);
 
   const valid = points.filter(p => p.status === 'ok');
-  const plot = valid.length ? valid : points;
 
   if (!valid.length) {
     return h('div', { ref: wrapRef, style: { width: '100%' } },
@@ -142,78 +103,15 @@ export function Trend({ points }) {
       }, '尚无余额记录。后台将在启动后约 30 秒开始采样；至少两个有效采样才能画出走势与消耗估算。'));
   }
 
-  // The x-domain spans EVERY sample in the queried window (failures included),
-  // so a gap at either edge is drawn where it happened instead of off-canvas.
-  // The y-domain uses valid balances only: a failed point has no `total`.
-  const minAt = points[0].at;
-  const lastAt = points[points.length - 1].at;
-  const maxAt = Math.max(minAt + 60000, lastAt);
-  const totals = valid.map(p => p.total);
-  const min = Math.min(...totals), max = Math.max(...totals);
-  // Pad by a fraction of the OBSERVED SPAN, not of the absolute balance: a flat
-  // account holding 1,286 credits with 4 credits of movement would otherwise be
-  // padded by ~13 credits on each side and render as a dead straight line. The
-  // axis labels carry the absolute scale, so filling the height is honest.
-  const range = max - min;
-  const cushion = range > 0 ? range * 0.15 : Math.max(1, max * 0.002);
-  const low = Math.max(0, min - cushion), high = max + cushion;
-  const ticks = niceTicks(low, high);
+  const trend = buildTrend(points, { width, height });
+  const { curves, segments, domain, ticks, tickLabels, layout, scale } = trend;
+  const { minAt, lastAt } = domain;
+  const { width: w, padLeft, padTop, innerW, innerH } = layout;
+  const { xOf: x, yOf: y } = scale;
 
-  // The left gutter follows the WIDEST label actually drawn, so digits can never
-  // start at a negative x and be clipped (an 11-digit balance is ~66px wide).
-  const w = Math.max(240, Math.round(width) || 320);
-  const { labels: tickLabels, padLeft } = axisLayout(ticks, w);
-  const padRight = 16, padTop = 14, padBottom = 24;
-  const innerW = Math.max(40, w - padLeft - padRight);
-  const innerH = Math.max(40, height - padTop - padBottom);
-
-  const x = p => padLeft + ((p.at - minAt) / (maxAt - minAt)) * innerW;
-  const y = p => padTop + innerH - ((p.total - low) / (high - low || 1)) * innerH;
-
-  // Split the valid samples into RUNS, breaking wherever an interval is not
-  // usable continuity (a neighbouring failure, or a `gap`). Each run is drawn as
-  // its own polyline + area, so a long absence of samples can never render as a
-  // smooth straight line that reads as continuous consumption.
-  //
-  // NOTE: this walks `points` (failures included), not `plot`: `plot` is already
-  // filtered to valid samples, so walking it would hide every failure boundary.
-  const runs = [];
-  let run = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i], prev = points[i - 1];
-    const broken = i > 0 && (prev.status !== 'ok' || p.status !== 'ok' || p.change?.kind === 'gap');
-    if (broken && run.length) { runs.push(run); run = []; }
-    if (p.status === 'ok') run.push(p);
-  }
-  if (run.length) runs.push(run);
-
-  // A run of ONE sample is an isolated dot, not a line: emitting a 1-vertex
-  // polyline (and a zero-width area) would add a no-op element per isolated
-  // sample. Those dots are already drawn by the per-point circles below.
-  const lines = runs.filter(r => r.length >= 2);
-
-  const seg = pts => pts.map(p => `${x(p).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
-  const area = pts => `${x(pts[0]).toFixed(1)},${padTop + innerH} ${seg(pts)} ${x(pts[pts.length - 1]).toFixed(1)},${padTop + innerH}`;
-
-  // Colored highlighted segments (only real, adjacent, non-gap intervals).
-  const segments = [];
-  for (let i = 1; i < plot.length; i++) {
-    const a = plot[i - 1], b = plot[i];
-    if (a.status !== 'ok' || b.status !== 'ok' || b.change?.kind === 'gap') continue;
-    segments.push({ a, b, usage: b.change?.kind === 'usage' });
-  }
-
-  // One break marker per discontinuity: a failed sample marks its own x (red, as
-  // before), while a `gap` between two healthy samples marks the middle of the
-  // unseen interval (amber — it is missing data, not a failed query).
-  const breaks = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    if (p.status !== 'ok') { breaks.push({ at: p.at, failure: true }); continue; }
-    if (i > 0 && points[i - 1].status === 'ok' && p.change?.kind === 'gap') {
-      breaks.push({ at: (points[i - 1].at + p.at) / 2, failure: false, from: points[i - 1].at, to: p.at });
-    }
-  }
+  // Hover picks the NEAREST sample by pixel distance on the x-axis. It walks the
+  // valid samples, not all points: a failed sample has no balance to read out.
+  const plot = trend.valid;
 
   const onMove = event => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -241,7 +139,7 @@ export function Trend({ points }) {
       ? h(React.Fragment, null,
         h('strong', { style: { color: TOKEN.text, fontSize: 14 } }, `${fmt(readout.total)}`),
         h('span', null, stamp(readout.at)),
-        h('span', { style: { color: readout.change?.kind === 'usage' ? TOKEN.brand : TOKEN.faint } }, describe(readout.change)))
+        h('span', { style: { color: changeKindOf(readout) === 'usage' ? TOKEN.brand : TOKEN.faint } }, describe(readout.change)))
       : h('span', { style: { color: TOKEN.faint } }, '悬停查看某一时刻的余额与区间变化')),
     h('svg', {
       width: w, height, viewBox: `0 0 ${w} ${height}`, role: 'img',
@@ -258,27 +156,19 @@ export function Trend({ points }) {
         h('line', { x1: padLeft, x2: padLeft + innerW, y1: gy, y2: gy, stroke: 'currentColor', strokeOpacity: 0.12 }),
         h('text', { x: padLeft - 8, y: gy + 3.5, textAnchor: 'end', fill: 'currentColor', fontSize: 10, opacity: 0.55 }, tickLabels[i]));
     }),
-    lines.map((pts, i) => h('polygon', { key: `area-${i}`, points: area(pts), fill: 'url(#ch-area)' })),
-    lines.map((pts, i) => h('polyline', {
-      key: `line-${i}`, points: seg(pts), fill: 'none', stroke: TOKEN.brand, strokeWidth: 1.5, strokeOpacity: 0.55,
+    // 面积与折线都只有**一段** —— 空缺不再开口。见 trend-geometry.js 的契约。
+    curves.map(({ area: polygon }, i) => h('polygon', { key: `area-${i}`, points: polygon, fill: 'url(#ch-area)' })),
+    curves.map(({ polyline }, i) => h('polyline', {
+      key: `line-${i}`, points: polyline, fill: 'none', stroke: TOKEN.brand, strokeWidth: 1.5, strokeOpacity: 0.55,
       strokeLinejoin: 'round', strokeLinecap: 'round',
     })),
     segments.map(({ a, b, usage }, i) => h('line', {
       key: `seg-${i}`, x1: x(a), y1: y(a), x2: x(b), y2: y(b),
       stroke: usage ? TOKEN.brand : TOKEN.warn, strokeWidth: 2, strokeLinecap: 'round',
     })),
-    // Intervals that are NOT continuity: dashed vertical break, so the line and
-    // the area visibly stop instead of bridging a long absence of samples.
-    breaks.map((b, i) => h('g', { key: `brk-${i}` },
-      h('line', {
-        x1: x(b), x2: x(b), y1: padTop + 2, y2: padTop + innerH,
-        stroke: b.failure ? TOKEN.error : TOKEN.warn, strokeOpacity: b.failure ? 0.4 : 0.5,
-        strokeDasharray: b.failure ? '2 4' : '3 3',
-      }),
-      h('title', null, b.failure
-        ? `${stamp(b.at)}\n查询失败，历史保留缺口`
-        : `${stamp(b.from)} → ${stamp(b.to)}\n两次采样间隔过长，其中的消耗无法估算`),
-      b.failure ? h('circle', { cx: x(b), cy: padTop + 6, r: 3, fill: TOKEN.error, fillOpacity: 0.75 }) : null)),
+    // ⚠️ 这里**不再**画「虚线断点」。原先每个 gap/失败采样都画一条竖直虚线让曲线
+    // 与面积「明显断开」，那正是用户要删掉的「把空缺显示为空缺」。曲线现在直接跨
+    // 过去；空缺仍可从 x 轴的稀疏读出来（相邻两点的水平间距明显更宽）。
     active ? h('g', null,
       h('line', { x1: x(active), x2: x(active), y1: padTop, y2: padTop + innerH, stroke: 'currentColor', strokeOpacity: 0.28, strokeDasharray: '3 3' }),
       active.status === 'ok' ? h('circle', { cx: x(active), cy: y(active), r: 4.5, fill: TOKEN.brand, stroke: TOKEN.text, strokeWidth: 1.5 }) : null) : null,
@@ -313,7 +203,7 @@ const selectStyle = {
  * The sidebar tab body: chart-first, tuned for a narrow column.
  * Owns its own provider / account / range state (there is no wrapper page).
  */
-export function CreditHistoryPanel({ rpcCall, visible = true }) {
+export function CreditHistoryPanel({ rpcCall, visible = true, sessionId }) {
   const [provider, setProvider] = React.useState('qodercn');
   const [hours, setHours] = React.useState(24);
   const [accountId, setAccountId] = React.useState('');
@@ -322,6 +212,28 @@ export function CreditHistoryPanel({ rpcCall, visible = true }) {
   const [busy, setBusy] = React.useState(false);
   const [available, setAvailable] = React.useState(null);
   const [nonce, setNonce] = React.useState(0);
+  // 会话自动切源只做一次（每个 sessionId 一次）：它是**种子**不是锁定 ——
+  // 用户手动切走之后，本轮会话内不再被拉回。
+  const seededRef = React.useRef('');
+
+  // 当前会话最近用的供应商：宿主按 sessionId 查（实时观察 + 重启后按需解压
+  // 会话文件兜底）。查不到 / 旧版宿主不认识这个方法（会抛错）都静默回落，
+  // 维持原有「可用探针选第一个有账号的来源」的行为。
+  React.useEffect(() => {
+    if (!sessionId || seededRef.current === sessionId) return;
+    seededRef.current = sessionId;
+    let alive = true;
+    rpcCall('session.provider', { sessionId })
+      .then(result => {
+        const seed = result?.provider;
+        if (!alive || typeof seed !== 'string' || !PROVIDERS[seed]) return;
+        // 可用探针若已先返回，也只在种子属于可用来源时覆盖 —— 种子对应的
+        // 来源没有账号时，维持探针选中的那个（有账号的）来源更实用。
+        setProvider(current => (available === null || available.includes(seed) ? seed : current));
+      })
+      .catch(() => { /* 旧版宿主 / 查询失败：静默维持默认 */ });
+    return () => { alive = false; };
+  }, [sessionId, rpcCall, available]);
 
   // Which API sources actually have accounts: one cheap LOCAL read per source
   // (view() only filters the local history file — it never queries upstream).
@@ -428,7 +340,7 @@ export function CreditHistoryPanel({ rpcCall, visible = true }) {
     // ---- status ---------------------------------------------------------
     h('p', { style: { fontSize: 11, color: TOKEN.faint, margin: '8px 0 0', lineHeight: 1.65 } },
       last
-        ? `${stamp(last.at)} · ${last.status === 'ok' ? describe(last.change) : '查询失败，历史保留缺口'}`
+        ? `${stamp(last.at)} · ${last.status === 'ok' ? describe(last.change) : '查询失败，该时刻没有余额记录'}`
         : '正在等待第一次采样。'),
 
     // ---- details --------------------------------------------------------
@@ -448,7 +360,7 @@ export function CreditHistoryPanel({ rpcCall, visible = true }) {
 
     // ---- caveats --------------------------------------------------------
     h('p', { style: { fontSize: 10.5, color: TOKEN.faint, margin: '12px 0 0', lineHeight: 1.7 } },
-      '用量是相邻余额的净下降估算，包含此账号在其他客户端的消费；积分补充、到期或周期重置可能遮蔽实际消耗，跨日、资源包变化与断点均不计入。历史保留 30 天，退出 dsh 后暂停采样。'));
+      '用量是相邻余额的净下降估算，包含此账号在其他客户端的消费；积分补充、到期或周期重置可能遮蔽实际消耗，跨日与资源包变化不计入。走势图按真实时间连续绘制，采样稀疏处不另作标记。历史保留 30 天，退出 dsh 后暂停采样。'));
 }
 
 /**
@@ -491,9 +403,12 @@ export function HistorySettings({ rpcCall }) {
     h('div', { style: rowStyle },
       h('span', null, '采样间隔'),
       h('select', {
-        style: selectStyle, value: data?.intervalMinutes || 15, disabled: busy || !data,
+        // ⚠️ 取值与选项都来自 `history-settings.js`（纯模块、有单测）：
+        // 采样默认值改成 5 之后，这里若还写 `|| 15`、还把 15 排第一，
+        // 下拉框会先显示「15 分钟」再跳成「5 分钟」，用户会以为自己选的被改回去了。
+        style: selectStyle, value: samplingSelectValue(data), disabled: busy || !data,
         onChange: e => void configure({ intervalMinutes: Number(e.target.value) }),
-      }, h('option', { value: 15 }, '15 分钟'), h('option', { value: 5 }, '5 分钟'))),
+      }, ...SAMPLING_MINUTES.map(minutes => h('option', { key: minutes, value: minutes }, `${minutes} 分钟`)))),
     error ? h('p', { role: 'alert', style: { color: TOKEN.error, margin: '6px 0 0' } }, error) : null,
     h('p', { style: { fontSize: 10.5, color: TOKEN.faint, margin: '8px 0 0', lineHeight: 1.7 } },
       '自动采样设置对全部 API 源生效，后台按来源与账号串行执行。仅自动采样失败时延长间隔，最多 60 分钟。关闭本面板仍会采样，退出 dsh 才暂停。Jet Hub 的手动查询保持原有行为。'));
